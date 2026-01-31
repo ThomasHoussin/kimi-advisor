@@ -52,7 +52,8 @@ uvx ruff format .
 
 - **`KimiClient`** — wraps the OpenAI client pointed at Moonshot API. Handles auth, retry with exponential backoff (up to 3 attempts on 429/5xx), and response parsing (extracts `reasoning_content` + `content`).
 - **System prompts** — loaded from `prompts/*.md` at module init. Each command (`ask`, `review`, `decompose`) has its own prompt defining Kimi's role and output format.
-- **CLI layer** — Click group with 3 commands sharing common options (`--show-reasoning`, `--max-tokens`, `--json`). Supports stdin via `-` argument.
+- **File attachments** — `--file` / `-f` option (repeatable) on all commands. Auto-detects text vs image by extension. Text files are included as markdown context, images are base64-encoded and sent via OpenAI vision format. Limits: 1 MB per file, 10 MB total. The tool reads any file the user has OS-level permission to access — this is by design, as the purpose is to send file contents to the API for analysis.
+- **CLI layer** — Click group with 3 commands sharing common options (`--show-reasoning`, `--max-tokens`, `--json`, `--file`). Supports stdin via `-` argument.
 - **Output** — markdown by default, structured JSON with `--json`. Reasoning displayed only with `--show-reasoning`.
 
 ### Conventions

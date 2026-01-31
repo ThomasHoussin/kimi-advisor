@@ -213,7 +213,9 @@ class TestKimiClientQuery:
     def test_empty_choices_array(self, mock_env, mock_response):
         mock_response.choices = []
         with patch.object(kimi_advisor, "OpenAI") as mock_openai:
-            mock_openai.return_value.chat.completions.create.return_value = mock_response
+            mock_openai.return_value.chat.completions.create.return_value = (
+                mock_response
+            )
             client = kimi_advisor.KimiClient()
             with pytest.raises(click.ClickException, match="empty response"):
                 client.query("ask", "test", 8192)
@@ -221,7 +223,9 @@ class TestKimiClientQuery:
     def test_none_content(self, mock_env, mock_response):
         mock_response.choices[0].message.content = None
         with patch.object(kimi_advisor, "OpenAI") as mock_openai:
-            mock_openai.return_value.chat.completions.create.return_value = mock_response
+            mock_openai.return_value.chat.completions.create.return_value = (
+                mock_response
+            )
             client = kimi_advisor.KimiClient()
             reasoning, answer = client.query("ask", "test", 8192)
             assert answer == ""
@@ -272,7 +276,9 @@ class TestReadInput:
             "sys.stdin",
             MagicMock(
                 isatty=lambda: False,
-                buffer=MagicMock(read=lambda: "accents éàü et emoji 🎉".encode("utf-8")),
+                buffer=MagicMock(
+                    read=lambda: "accents éàü et emoji 🎉".encode("utf-8")
+                ),
             ),
         )
         result = kimi_advisor.read_input("-")
@@ -427,3 +433,229 @@ class TestCLI:
         result = runner.invoke(kimi_advisor.cli, ["ask", "test"])
         assert result.exit_code != 0
         assert "KIMI_API_KEY" in result.output
+
+    def test_file_option_text(self, runner, mock_env, mock_response, tmp_path):
+        code_file = tmp_path / "app.py"
+        code_file.write_text("def hello(): pass", encoding="utf-8")
+        with patch.object(kimi_advisor, "OpenAI") as mock_openai:
+            mock_create = mock_openai.return_value.chat.completions.create
+            mock_create.return_value = mock_response
+            result = runner.invoke(
+                kimi_advisor.cli,
+                ["ask", "explain this code", "-f", str(code_file)],
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_create.call_args[1]
+            user_content = call_kwargs["messages"][1]["content"]
+            assert isinstance(user_content, list)
+
+    def test_file_option_image(self, runner, mock_env, mock_response, tmp_path):
+        img_file = tmp_path / "screenshot.png"
+        img_file.write_bytes(b"\x89PNG" + b"\x00" * 50)
+        with patch.object(kimi_advisor, "OpenAI") as mock_openai:
+            mock_create = mock_openai.return_value.chat.completions.create
+            mock_create.return_value = mock_response
+            result = runner.invoke(
+                kimi_advisor.cli,
+                ["ask", "describe this", "-f", str(img_file)],
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_create.call_args[1]
+            user_content = call_kwargs["messages"][1]["content"]
+            assert any(part["type"] == "image_url" for part in user_content)
+
+    def test_file_option_multiple(self, runner, mock_env, mock_response, tmp_path):
+        f1 = tmp_path / "a.py"
+        f1.write_text("a = 1", encoding="utf-8")
+        f2 = tmp_path / "b.py"
+        f2.write_text("b = 2", encoding="utf-8")
+        with patch.object(kimi_advisor, "OpenAI") as mock_openai:
+            mock_create = mock_openai.return_value.chat.completions.create
+            mock_create.return_value = mock_response
+            result = runner.invoke(
+                kimi_advisor.cli,
+                ["ask", "compare", "-f", str(f1), "-f", str(f2)],
+            )
+            assert result.exit_code == 0
+
+    def test_file_not_found_error(self, runner, mock_env):
+        with patch.object(kimi_advisor, "OpenAI"):
+            result = runner.invoke(
+                kimi_advisor.cli,
+                ["ask", "explain", "-f", "/nonexistent/file.py"],
+            )
+            assert result.exit_code != 0
+            assert "File not found" in result.output
+
+    def test_no_files_backward_compatible(self, runner, mock_env, mock_response):
+        """Queries without -f still send plain string content."""
+        with patch.object(kimi_advisor, "OpenAI") as mock_openai:
+            mock_create = mock_openai.return_value.chat.completions.create
+            mock_create.return_value = mock_response
+            runner.invoke(kimi_advisor.cli, ["ask", "hello"])
+            call_kwargs = mock_create.call_args[1]
+            user_content = call_kwargs["messages"][1]["content"]
+            assert isinstance(user_content, str)
+
+
+# --- _is_image_file ---
+
+
+class TestIsImageFile:
+    @pytest.mark.parametrize("ext", [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"])
+    def test_image_extensions(self, ext):
+        assert kimi_advisor._is_image_file(Path(f"photo{ext}")) is True
+
+    @pytest.mark.parametrize("ext", [".py", ".txt", ".md", ".json", ".csv", ".svg", ""])
+    def test_non_image_extensions(self, ext):
+        assert kimi_advisor._is_image_file(Path(f"file{ext}")) is False
+
+    def test_case_insensitive(self):
+        assert kimi_advisor._is_image_file(Path("photo.PNG")) is True
+        assert kimi_advisor._is_image_file(Path("photo.Jpg")) is True
+
+
+# --- _read_file_content ---
+
+
+class TestReadFileContent:
+    def test_file_not_found(self, tmp_path):
+        path = tmp_path / "nonexistent.txt"
+        with pytest.raises(click.ClickException, match="File not found"):
+            kimi_advisor._read_file_content(path)
+
+    def test_error_mentions_path_hint(self, tmp_path):
+        path = tmp_path / "missing.txt"
+        with pytest.raises(click.ClickException, match="Verify the path"):
+            kimi_advisor._read_file_content(path)
+
+    def test_directory_not_file(self, tmp_path):
+        with pytest.raises(click.ClickException, match="Not a file"):
+            kimi_advisor._read_file_content(tmp_path)
+
+    def test_empty_file(self, tmp_path):
+        path = tmp_path / "empty.txt"
+        path.write_text("")
+        with pytest.raises(click.ClickException, match="File is empty"):
+            kimi_advisor._read_file_content(path)
+
+    def test_file_too_large(self, tmp_path):
+        path = tmp_path / "huge.txt"
+        path.write_bytes(b"x" * (kimi_advisor.MAX_FILE_SIZE + 1))
+        with pytest.raises(click.ClickException, match="File too large"):
+            kimi_advisor._read_file_content(path)
+
+    def test_read_text_file(self, tmp_path):
+        path = tmp_path / "hello.py"
+        path.write_text("print('hello')", encoding="utf-8")
+        typ, data, name = kimi_advisor._read_file_content(path)
+        assert typ == "text"
+        assert data == "print('hello')"
+        assert name == "hello.py"
+
+    def test_read_image_file(self, tmp_path):
+        path = tmp_path / "img.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        typ, data, name = kimi_advisor._read_file_content(path)
+        assert typ == "image"
+        assert data.startswith("data:image/png;base64,")
+        assert name == "img.png"
+
+    def test_non_utf8_text_replaced(self, tmp_path):
+        path = tmp_path / "latin.txt"
+        path.write_bytes(b"caf\xe9 cr\xe8me")
+        typ, data, name = kimi_advisor._read_file_content(path)
+        assert typ == "text"
+        assert "\ufffd" in data
+
+    def test_svg_treated_as_text(self, tmp_path):
+        path = tmp_path / "icon.svg"
+        path.write_text("<svg></svg>", encoding="utf-8")
+        typ, data, name = kimi_advisor._read_file_content(path)
+        assert typ == "text"
+        assert "<svg>" in data
+
+
+# --- _process_files ---
+
+
+class TestProcessFiles:
+    def test_empty_tuple(self):
+        assert kimi_advisor._process_files(()) == []
+
+    def test_single_text_file(self, tmp_path):
+        path = tmp_path / "code.py"
+        path.write_text("x = 1", encoding="utf-8")
+        result = kimi_advisor._process_files((str(path),))
+        assert len(result) == 1
+        assert result[0][0] == "text"
+        assert result[0][2] == "code.py"
+
+    def test_mixed_files(self, tmp_path):
+        txt = tmp_path / "notes.md"
+        txt.write_text("# Notes", encoding="utf-8")
+        img = tmp_path / "pic.png"
+        img.write_bytes(b"\x89PNG" + b"\x00" * 100)
+        result = kimi_advisor._process_files((str(txt), str(img)))
+        assert result[0][0] == "text"
+        assert result[1][0] == "image"
+
+    def test_deduplication(self, tmp_path):
+        path = tmp_path / "file.txt"
+        path.write_text("hello", encoding="utf-8")
+        result = kimi_advisor._process_files((str(path), str(path)))
+        assert len(result) == 1
+
+    def test_total_size_exceeded(self, tmp_path):
+        # Create 11 distinct files each just under the per-file limit
+        paths = []
+        for i in range(11):
+            p = tmp_path / f"big{i}.txt"
+            p.write_bytes(b"x" * (kimi_advisor.MAX_FILE_SIZE - 1))
+            paths.append(str(p))
+        with pytest.raises(click.ClickException, match="Total attachment size"):
+            kimi_advisor._process_files(tuple(paths))
+
+
+# --- _build_user_content ---
+
+
+class TestBuildUserContent:
+    def test_no_attachments_returns_string(self):
+        result = kimi_advisor._build_user_content("hello", [])
+        assert result == "hello"
+        assert isinstance(result, str)
+
+    def test_text_attachment(self):
+        attachments = [("text", "print('hi')", "main.py")]
+        result = kimi_advisor._build_user_content("explain this", attachments)
+        assert isinstance(result, list)
+        assert len(result) == 2  # prompt + file context
+        assert result[0]["type"] == "text"
+        assert result[0]["text"] == "explain this"
+        assert result[1]["type"] == "text"
+        assert "main.py" in result[1]["text"]
+
+    def test_image_attachment(self):
+        attachments = [("image", "data:image/png;base64,abc123", "photo.png")]
+        result = kimi_advisor._build_user_content("describe this", attachments)
+        assert isinstance(result, list)
+        assert len(result) == 2  # prompt + image
+        assert result[0]["type"] == "text"
+        assert result[0]["text"] == "describe this"
+        assert result[1]["type"] == "image_url"
+        assert result[1]["image_url"]["url"] == "data:image/png;base64,abc123"
+
+    def test_mixed_attachments_ordering(self):
+        attachments = [
+            ("text", "code here", "app.py"),
+            ("image", "data:image/png;base64,xyz", "screenshot.png"),
+        ]
+        result = kimi_advisor._build_user_content("review this", attachments)
+        assert isinstance(result, list)
+        assert len(result) == 3  # prompt, text context, image
+        assert result[0]["type"] == "text"
+        assert result[0]["text"] == "review this"
+        assert result[1]["type"] == "text"
+        assert "app.py" in result[1]["text"]
+        assert result[2]["type"] == "image_url"
