@@ -2,7 +2,7 @@
 
 CLI tool to get a second opinion from Kimi K2.5. Designed for use with Claude Code — Claude reads code and builds context, Kimi provides external perspective.
 
-> **Key principle:** Kimi has no access to your codebase or files. All relevant context (code snippets, schemas, architecture, constraints) must be included directly in the prompt as plain text.
+> **Key principle:** Kimi has no access to your codebase. Include relevant context (code snippets, schemas, architecture, constraints) directly in the prompt, or attach files with `-f`.
 
 ## Quick Start
 
@@ -75,6 +75,23 @@ kimi-advisor decompose "Migrate REST API to GraphQL. Stack: Express (15 endpoint
 | `--show-reasoning` | Display Kimi's thinking process | `False` |
 | `--max-tokens` | Output token limit | `8192` |
 | `--json` | Structured JSON output | `False` |
+| `-f`, `--file` | Attach file(s) as context (text) or vision input (images). Repeatable. | — |
+
+### File Attachments
+
+Use `-f` / `--file` to attach files directly instead of pasting content into the prompt. The option is repeatable.
+
+```bash
+# Attach a single file
+kimi-advisor ask "Review this schema for potential issues" -f schema.prisma
+
+# Attach multiple files (text + image)
+kimi-advisor review "Is this migration safe?" -f migration.sql -f erd.png
+```
+
+- **Text files** (any non-image extension) are included as markdown context in the prompt.
+- **Images** (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.tiff`) are base64-encoded and sent via the vision API.
+- **Limits:** 1 MB per file, 10 MB total.
 
 ## Environment Variables
 
@@ -112,6 +129,10 @@ Plan:
 
 # Decompose a task — describe the full scope with technical details
 kimi-advisor decompose "Migrate a REST API (Express, 15 endpoints, PostgreSQL with Prisma ORM, deployed on AWS Lambda via CDK) to GraphQL. Current endpoints: [list them]. Auth is JWT-based. Need to maintain backwards compatibility during migration."
+
+# Attach files directly instead of pasting
+kimi-advisor ask "Review this schema" -f schema.prisma
+kimi-advisor review "Is this migration safe?" -f migration.sql -f screenshot.png
 
 # Pipe long input via stdin for larger prompts
 echo "full context here..." | kimi-advisor review -
