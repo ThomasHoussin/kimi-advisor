@@ -23,12 +23,14 @@ chmod +x ~/bin/kimi-advisor
 # Ensure ~/bin is on your PATH (add to ~/.bashrc if not already):
 export PATH="$HOME/bin:$PATH"
 
-# 3. Use it — include full context
+# 3. Use it — include context AND relevant files
 kimi-advisor ask "We have a Node.js API (Express, 10k req/s). Sessions are in PostgreSQL. Should we use Redis or Memcached for session cache? Team has no Redis experience."
 
-kimi-advisor review "Context: React app with Zustand state management. Plan: 1. Add Redis client wrapper 2. Create cache decorator using this pattern: [paste code] 3. Add TTL config 4. Write tests"
+kimi-advisor review "Add caching layer to our Express API. Plan: 1. Add Redis 2. Cache middleware 3. Invalidation on writes" \
+  -f src/handlers/users.js -f src/handlers/products.js -f infra/cdk-stack.ts
 
-kimi-advisor decompose "Migrate auth from session-based to JWT. Current stack: Express API, PostgreSQL, 15 endpoints. Current session code: [paste snippet]. Must maintain backwards compat."
+kimi-advisor decompose "Migrate auth from session-based to JWT. Must maintain backwards compat during migration." \
+  -f src/auth.js -f src/middleware.js -f prisma/schema.prisma
 ```
 
 ## Usage
@@ -43,29 +45,29 @@ kimi-advisor ask "We're building a real-time dashboard. Current stack: React + W
 
 ### `review` — Critique a plan
 
-Include both the plan and the relevant code/architecture context.
+Include the plan description AND attach relevant files via `-f`.
 
 ```bash
-kimi-advisor review "Goal: Add caching to our API.
-Current code: [paste relevant handler code]
-Tech stack: Express, PostgreSQL, deployed on Lambda.
+kimi-advisor review "Goal: Add caching to our Express API (PostgreSQL, deployed on Lambda).
 Plan:
 1. Add Redis ElastiCache cluster
 2. Create cache middleware
 3. Cache GET /users and GET /products (TTL 5min)
 4. Add cache invalidation on POST/PUT/DELETE
-5. Add monitoring"
+5. Add monitoring" \
+  -f src/handlers/users.js -f src/handlers/products.js -f infra/cdk-stack.ts
 
 # Pipe longer prompts via stdin
-echo "full context and plan here..." | kimi-advisor review -
+echo "full context and plan here..." | kimi-advisor review - -f src/schema.prisma
 ```
 
 ### `decompose` — Break down into parallel/sequential tasks
 
-Include full scope, tech stack, and component dependencies.
+Describe the scope and constraints, attach the relevant code/config files.
 
 ```bash
-kimi-advisor decompose "Migrate REST API to GraphQL. Stack: Express (15 endpoints), PostgreSQL with Prisma, JWT auth, deployed on AWS Lambda via CDK. Endpoints: GET/POST /users, GET/POST/PUT /products, GET /orders... Must maintain REST during migration for mobile clients on older versions."
+kimi-advisor decompose "Migrate REST API (15 endpoints) to GraphQL. Must maintain REST during migration for mobile clients on older versions." \
+  -f src/routes.js -f prisma/schema.prisma -f cdk/api-stack.ts
 ```
 
 ## Options
@@ -120,21 +122,19 @@ Use `kimi-advisor` to get a second opinion from Kimi K2.5 on complex tasks — a
 # Ask a question — include full context inline
 kimi-advisor ask "We have a Node.js API serving 10k req/s with this data model: [paste schema]. Sessions are stored in PostgreSQL. Should we move session storage to Redis or Memcached? Constraints: team has no Redis experience, budget is limited."
 
-# Review a plan — include the plan AND the relevant context
-kimi-advisor review "Context: React Native app with Expo, using Zustand for state. Current auth is email/password via Cognito.
+# Review a plan — describe the plan AND attach relevant files
+kimi-advisor review "Add Google OAuth to our React Native app (Expo, Cognito).
 Plan:
 1. Add Google OAuth provider in Cognito
 2. Install expo-auth-session
 3. Create useGoogleAuth hook
 4. Add Google Sign-In button to LoginScreen
-5. Map Google profile to existing user model"
+5. Map Google profile to existing user model" \
+  -f src/screens/LoginScreen.tsx -f src/hooks/useAuth.ts -f cdk/auth-stack.ts
 
-# Decompose a task — describe the full scope with technical details
-kimi-advisor decompose "Migrate a REST API (Express, 15 endpoints, PostgreSQL with Prisma ORM, deployed on AWS Lambda via CDK) to GraphQL. Current endpoints: [list them]. Auth is JWT-based. Need to maintain backwards compatibility during migration."
-
-# Attach files directly instead of pasting
-kimi-advisor ask "Review this schema" -f schema.prisma
-kimi-advisor review "Is this migration safe?" -f migration.sql -f screenshot.png
+# Decompose a task — describe scope and attach code/config
+kimi-advisor decompose "Migrate REST API to GraphQL. Must maintain backwards compat during migration." \
+  -f src/routes.ts -f prisma/schema.prisma -f cdk/api-stack.ts
 
 # Pipe long input via stdin for larger prompts
 echo "full context here..." | kimi-advisor review -
@@ -144,9 +144,9 @@ echo "full context here..." | kimi-advisor review -
 
 **ask** — Architecture decisions, technology choices, trade-off analysis, unfamiliar domains. Always include: the current stack, constraints, what you've considered so far.
 
-**review** — Validate your implementation plan before starting. Always include: the plan itself, the codebase context (relevant code snippets, architecture), and the goal.
+**review** — Validate your implementation plan before starting. Always include: the plan description AND relevant files via `-f` (code, config, schemas).
 
-**decompose** — Large migrations, multi-component features. Always include: full task description, tech stack, dependencies between components, constraints.
+**decompose** — Large migrations, multi-component features. Always include: scope/constraints description AND relevant files via `-f` (routes, schemas, infra).
 
 ### Prompt quality checklist
 

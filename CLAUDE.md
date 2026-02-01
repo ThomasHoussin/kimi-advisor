@@ -38,8 +38,12 @@ No other setup needed — `uv` handles the virtual environment and dependencies.
 ```bash
 # Run locally
 uv run kimi_advisor.py ask "your question"
-uv run kimi_advisor.py review "your plan"
-uv run kimi_advisor.py decompose "your task"
+
+# review / decompose: provide context AND relevant files via -f
+uv run kimi_advisor.py review "migrate auth from sessions to JWT" \
+  -f src/auth.py -f src/middleware.py -f docs/auth-spec.md
+uv run kimi_advisor.py decompose "add rate limiting to API" \
+  -f src/routes.py -f src/config.py
 
 # Run tests (no API key needed)
 uv run --group test pytest -v
@@ -92,3 +96,52 @@ docs: update installation guide
 refactor(mobile): extract common form components
 feat!: redesign user profile API
 ```
+
+## Kimi Advisor
+
+Use `kimi-advisor` to get a second opinion from Kimi K2.5 on complex tasks — architecture decisions, multi-step plans, large migrations. A second opinion is valuable when there are trade-offs to weigh, multiple valid approaches, or unfamiliar territory.
+
+**Note**: `kimi-advisor` is a read-only operation (queries an external LLM, modifies no files). It is allowed in plan mode.
+
+**Important:** Kimi has NO access to the codebase, files, or any context beyond what you pass in the prompt. You must include all relevant code, architecture details, constraints, and examples directly in the prompt as plain text. Never reference file paths or assume Kimi can look anything up.
+
+### Commands
+
+```bash
+# Ask a question — include full context inline
+kimi-advisor ask "We have a Node.js API serving 10k req/s with this data model: [paste schema]. Sessions are stored in PostgreSQL. Should we move session storage to Redis or Memcached? Constraints: team has no Redis experience, budget is limited."
+
+# Review a plan — describe the plan AND attach relevant files
+kimi-advisor review "Add Google OAuth to our React Native app (Expo, Cognito).
+Plan:
+1. Add Google OAuth provider in Cognito
+2. Install expo-auth-session
+3. Create useGoogleAuth hook
+4. Add Google Sign-In button to LoginScreen
+5. Map Google profile to existing user model" \
+  -f src/screens/LoginScreen.tsx -f src/hooks/useAuth.ts -f cdk/auth-stack.ts
+
+# Decompose a task — describe scope and attach code/config
+kimi-advisor decompose "Migrate REST API to GraphQL. Must maintain backwards compat during migration." \
+  -f src/routes.ts -f prisma/schema.prisma -f cdk/api-stack.ts
+
+# Pipe long input via stdin for larger prompts
+echo "full context here..." | kimi-advisor review -
+```
+
+### When to use
+
+**ask** — Architecture decisions, technology choices, trade-off analysis, unfamiliar domains. Always include: the current stack, constraints, what you've considered so far.
+
+**review** — Validate your implementation plan before starting. Always include: the plan description AND relevant files via `-f` (code, config, schemas).
+
+**decompose** — Large migrations, multi-component features. Always include: scope/constraints description AND relevant files via `-f` (routes, schemas, infra).
+
+### Prompt quality checklist
+
+Before calling kimi-advisor, verify your prompt includes:
+- [ ] The actual code or schema (not just file names)
+- [ ] Tech stack and framework versions
+- [ ] Constraints (team skills, budget, timeline, existing infra)
+- [ ] What you've already considered or tried
+- [ ] The specific question or decision point
