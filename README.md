@@ -6,7 +6,7 @@ CLI tool to get a second opinion from Kimi K2.5. Designed for use with Claude Co
 
 ## Quick Start
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/)
+**Prerequisites:** [uv](https://docs.astral.sh/uv/), [Node.js](https://nodejs.org/) (required only for the optional [blocking hook](#optional-enforce-plan-review-with-a-blocking-hook))
 
 ```bash
 # 1. Set your Moonshot API key (or add it to .env.local in the project)
@@ -110,6 +110,8 @@ Add the following to your project's `CLAUDE.md` to let Claude Code call kimi-adv
 
 Use `kimi-advisor` to get a second opinion from Kimi K2.5 on complex tasks — architecture decisions, multi-step plans, large migrations. A second opinion is valuable when there are trade-offs to weigh, multiple valid approaches, or unfamiliar territory.
 
+**Note**: `kimi-advisor` is a read-only operation (queries an external LLM, modifies no files). It is allowed in plan mode.
+
 **Important:** Kimi has NO access to the codebase, files, or any context beyond what you pass in the prompt. You must include all relevant code, architecture details, constraints, and examples directly in the prompt as plain text. Never reference file paths or assume Kimi can look anything up.
 
 ### Commands
@@ -156,20 +158,22 @@ Before calling kimi-advisor, verify your prompt includes:
 - [ ] The specific question or decision point
 ````
 
-### Optional: Auto-review plans with a hook
+### Optional: Enforce plan review with a blocking hook
 
-Add a `SubagentStop` hook to your project's `.claude/settings.json` so Claude automatically calls `kimi-advisor review` whenever a Plan agent finishes — before exiting plan mode:
+The CLAUDE.md approach above is **advisory** — Claude should follow it, but nothing prevents it from skipping the review. For a **blocking** guarantee, use a `PreToolUse` hook on `ExitPlanMode` that checks the session transcript for actual `kimi-advisor` execution before allowing Claude to exit plan mode.
+
+**1. Add the hook config** to your project's `.claude/settings.json`:
 
 ```json
 {
   "hooks": {
-    "SubagentStop": [
+    "PreToolUse": [
       {
-        "matcher": "Plan",
+        "matcher": "ExitPlanMode",
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"decision\": \"block\", \"reason\": \"Before exiting plan mode, run kimi-advisor review via Bash with the full plan content. If you already did, proceed to ExitPlanMode.\"}'"
+            "command": "node .claude/hooks/pre-exit-plan-mode.mjs"
           }
         ]
       }
@@ -178,7 +182,32 @@ Add a `SubagentStop` hook to your project's `.claude/settings.json` so Claude au
 }
 ```
 
-This blocks the Plan agent's return and reminds Claude to get Kimi's feedback on the plan. The `matcher: "Plan"` ensures it only fires for Plan agents, not Explore or Bash.
+**2. Copy the hook script** into the target project's `.claude/hooks/` directory:
+
+```bash
+# From the project where you want to enforce the hook:
+mkdir -p .claude/hooks
+cp /path/to/kimi-advisor/.claude/hooks/pre-exit-plan-mode.mjs .claude/hooks/
+```
+
+The script is included in this repo at [`.claude/hooks/pre-exit-plan-mode.mjs`](.claude/hooks/pre-exit-plan-mode.mjs). It requires Node.js and the [`claude` CLI](https://docs.anthropic.com/en/docs/claude-code) (used to call Haiku for transcript analysis).
+
+**How it works:**
+- When Claude calls `ExitPlanMode`, the hook intercepts the call
+- It reads the session transcript and sends it to Claude Haiku for analysis
+- Haiku checks whether `kimi-advisor` was actually **executed** via a Bash tool call (not just mentioned in system prompts or CLAUDE.md)
+- If executed → the hook allows `ExitPlanMode` to proceed
+- If not → the hook **denies** the call with a message telling Claude to run `kimi-advisor review` first
+- On any error (no transcript, Haiku timeout, etc.) → the hook exits silently and falls back to normal behavior
+
+**Advisory (CLAUDE.md) vs. Blocking (hook):**
+
+| | CLAUDE.md | PreToolUse hook |
+|---|---|---|
+| Mechanism | Instruction in system prompt | Script that gates `ExitPlanMode` |
+| Enforcement | Soft — Claude may skip it | Hard — Claude cannot exit plan mode |
+| Dependencies | None | `claude` CLI (for Haiku call) |
+| Failure mode | Claude proceeds without review | Falls back to normal (allows exit) |
 
 ### Workflow
 
