@@ -294,7 +294,31 @@ class TestReadInput:
     def test_whitespace_argument(self):
         assert kimi_advisor.read_input("   ") is None
 
-    def test_none_argument(self):
+    def test_none_argument_tty(self, monkeypatch):
+        """No argument + interactive terminal → None (triggers 'No input' error)."""
+        monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: True))
+        assert kimi_advisor.read_input(None) is None
+
+    def test_stdin_autodetect(self, monkeypatch):
+        """No argument + piped stdin → reads stdin automatically."""
+        monkeypatch.setattr(
+            "sys.stdin",
+            MagicMock(
+                isatty=lambda: False,
+                buffer=MagicMock(read=lambda: b"piped input\n"),
+            ),
+        )
+        assert kimi_advisor.read_input(None) == "piped input"
+
+    def test_stdin_autodetect_empty(self, monkeypatch):
+        """No argument + empty piped stdin → None."""
+        monkeypatch.setattr(
+            "sys.stdin",
+            MagicMock(
+                isatty=lambda: False,
+                buffer=MagicMock(read=lambda: b""),
+            ),
+        )
         assert kimi_advisor.read_input(None) is None
 
 
@@ -385,6 +409,18 @@ class TestCLI:
             )
             result = runner.invoke(
                 kimi_advisor.cli, ["ask", "-"], input="stdin question\n"
+            )
+            assert result.exit_code == 0
+            assert "Test answer" in result.output
+
+    def test_ask_stdin_autodetect(self, runner, mock_env, mock_response):
+        """No argument + piped stdin → reads stdin automatically (heredoc support)."""
+        with patch.object(kimi_advisor, "OpenAI") as mock_openai:
+            mock_openai.return_value.chat.completions.create.return_value = (
+                mock_response
+            )
+            result = runner.invoke(
+                kimi_advisor.cli, ["ask"], input="piped question\n"
             )
             assert result.exit_code == 0
             assert "Test answer" in result.output

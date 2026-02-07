@@ -16,19 +16,22 @@ import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 const PROMPT = `Analyze this Claude Code session transcript (JSONL format).
-Question: Has "kimi-advisor" been executed (via a Bash tool call) to review or challenge the current plan?
+Question: Has "kimi-advisor" been actually executed during this session to review or challenge the current plan?
 
-Look for evidence of kimi-advisor being actually called, such as:
+Valid evidence of execution includes:
 - A Bash tool call containing "kimi-advisor review", "kimi-advisor ask", or "kimi-advisor decompose"
-- Output from a kimi-advisor execution
+- Tool result/output blocks showing kimi-advisor's response (e.g., "## Plan Review", recommendations, issues found)
+- The assistant discussing or incorporating specific feedback that came from kimi-advisor
 
-A simple mention in a system-reminder, CLAUDE.md instruction, or hook additionalContext does NOT count as execution.
-Only an actual tool call (Bash command) counts.
+What does NOT count as evidence:
+- Mentions in system-reminder tags, CLAUDE.md instructions, or hook additionalContext (these are static instructions, not executions)
+- The assistant merely suggesting to run kimi-advisor without actually doing it
+- Vague claims like "I considered the advisor's input" without concrete output
 
 Respond with ONLY a JSON object, no other text:
 {"executed": true} or {"executed": false}`;
 
-const MAX_TRANSCRIPT_BYTES = 50_000;
+const TRANSCRIPT_WINDOW = 50_000;
 
 function readStdin() {
     return new Promise((resolve) => {
@@ -41,13 +44,47 @@ function readStdin() {
     });
 }
 
+/**
+ * Extract the most relevant portion of the transcript for analysis.
+ * Instead of blindly taking the last N bytes (which may cut out an earlier
+ * kimi-advisor call), search for the last occurrence of "kimi-advisor" and
+ * extract a window centered around it. Falls back to the tail if no match.
+ */
+function extractRelevantTranscript(raw) {
+    if (raw.length <= TRANSCRIPT_WINDOW) {
+        return raw;
+    }
+
+    const lastMatch = raw.lastIndexOf("kimi-advisor");
+
+    if (lastMatch === -1) {
+        // No mention at all — give Haiku the tail to confirm absence
+        return raw.slice(-TRANSCRIPT_WINDOW);
+    }
+
+    // Center a window around the last kimi-advisor occurrence
+    const halfWindow = Math.floor(TRANSCRIPT_WINDOW / 2);
+    let start = lastMatch - halfWindow;
+    let end = lastMatch + halfWindow;
+
+    if (start < 0) {
+        start = 0;
+        end = Math.min(TRANSCRIPT_WINDOW, raw.length);
+    } else if (end > raw.length) {
+        end = raw.length;
+        start = Math.max(0, end - TRANSCRIPT_WINDOW);
+    }
+
+    return raw.slice(start, end);
+}
+
 function allow() {
     console.log(
         JSON.stringify({
             hookSpecificOutput: {
                 hookEventName: "PreToolUse",
                 permissionDecision: "allow",
-                permissionDecisionReason: "kimi-advisor a bien été exécuté.",
+                permissionDecisionReason: "kimi-advisor was executed.",
             },
         }),
     );
@@ -60,7 +97,7 @@ function deny() {
                 hookEventName: "PreToolUse",
                 permissionDecision: "deny",
                 permissionDecisionReason:
-                    'kimi-advisor n\'a pas été exécuté. Lancez d\'abord : kimi-advisor review "<contenu du plan>" pour obtenir un second avis avant de sortir du plan mode.',
+                    'kimi-advisor was not executed. Run kimi-advisor review "<plan summary>" first to get a second opinion before exiting plan mode.',
             },
         }),
     );
@@ -76,14 +113,10 @@ async function main() {
             process.exit(0);
         }
 
-        // Read transcript, truncate to last ~50KB for speed
         const raw = readFileSync(transcript_path, "utf8");
-        const transcript =
-            raw.length > MAX_TRANSCRIPT_BYTES
-                ? raw.slice(-MAX_TRANSCRIPT_BYTES)
-                : raw;
+        const transcript = extractRelevantTranscript(raw);
 
-        const fullPrompt = `${PROMPT}\n\n--- TRANSCRIPT (last ${transcript.length} chars) ---\n${transcript}`;
+        const fullPrompt = `${PROMPT}\n\n<transcript>\n${transcript}\n</transcript>`;
 
         const response = execSync("claude -p --model haiku", {
             input: fullPrompt,
@@ -103,6 +136,10 @@ async function main() {
         if (result.executed) {
             allow();
         } else {
+            // Log Haiku's raw response to stderr for debugging false negatives
+            process.stderr.write(
+                `[pre-exit-plan-mode] Haiku denied. Raw response: ${response.trim()}\n`,
+            );
             deny();
         }
     } catch {

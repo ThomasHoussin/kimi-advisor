@@ -57,7 +57,7 @@ uvx ruff format .
 - **`KimiClient`** — wraps the OpenAI client pointed at Moonshot API. Handles auth, retry with exponential backoff (up to 3 attempts on 429/5xx), and response parsing (extracts `reasoning_content` + `content`).
 - **System prompts** — loaded from `prompts/*.md` at module init. Each command (`ask`, `review`, `decompose`) has its own prompt defining Kimi's role and output format.
 - **File attachments** — `--file` / `-f` option (repeatable) on all commands. Auto-detects text vs image by extension. Text files are included as markdown context, images are base64-encoded and sent via OpenAI vision format. Limits: 1 MB per file, 10 MB total. The tool reads any file the user has OS-level permission to access — this is by design, as the purpose is to send file contents to the API for analysis.
-- **CLI layer** — Click group with 3 commands sharing common options (`--show-reasoning`, `--max-tokens`, `--json`, `--file`). Supports stdin via `-` argument.
+- **CLI layer** — Click group with 3 commands sharing common options (`--show-reasoning`, `--max-tokens`, `--json`, `--file`). Supports stdin via `-` argument or auto-detected when no argument is given (enables heredoc usage for prompts with special characters).
 - **Output** — markdown by default, structured JSON with `--json`. Reasoning displayed only with `--show-reasoning`.
 
 ### Conventions
@@ -125,8 +125,14 @@ Plan:
 kimi-advisor decompose "Migrate REST API to GraphQL. Must maintain backwards compat during migration." \
   -f src/routes.ts -f prisma/schema.prisma -f cdk/api-stack.ts
 
-# Pipe long input via stdin for larger prompts
-echo "full context here..." | kimi-advisor review -
+# Pipe via stdin (auto-detected, no "-" needed)
+echo "full context here..." | kimi-advisor review
+
+# Heredoc for prompts with special characters ($, backticks, quotes)
+kimi-advisor review <<'EOF'
+Plan with $variables, `backticks`, and "quotes" preserved as-is.
+Single-quoted delimiter ('EOF') prevents all shell interpretation.
+EOF
 ```
 
 ### When to use

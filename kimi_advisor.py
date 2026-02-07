@@ -139,7 +139,7 @@ class KimiClient:
 
 def read_input(argument: str | None) -> str | None:
     """Read input from argument or stdin."""
-    if argument == "-":
+    if argument == "-" or (argument is None and not sys.stdin.isatty()):
         if sys.stdin.isatty():
             return None
         raw = sys.stdin.buffer.read()
@@ -325,7 +325,10 @@ def _run_command(
     """Shared execution logic for all commands."""
     if not prompt:
         raise click.ClickException(
-            f'No input provided. Usage: kimi-advisor {mode} "your text"'
+            f"No input provided. Usage:\n"
+            f'  kimi-advisor {mode} "your text"\n'
+            f"  kimi-advisor {mode} <<'EOF'\n"
+            f"  echo '...' | kimi-advisor {mode}"
         )
 
     attachments = _process_files(files)
