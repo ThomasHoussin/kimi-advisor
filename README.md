@@ -26,11 +26,11 @@ export PATH="$HOME/bin:$PATH"
 # 3. Use it — include context AND relevant files
 kimi-advisor ask "We have a Node.js API (Express, 10k req/s). Sessions are in PostgreSQL. Should we use Redis or Memcached for session cache? Team has no Redis experience."
 
-kimi-advisor review "Add caching layer to our Express API. Plan: 1. Add Redis 2. Cache middleware 3. Invalidation on writes" \
-  -f src/handlers/users.js -f src/handlers/products.js -f infra/cdk-stack.ts
+kimi-advisor review "Review the attached implementation plan." \
+  -f plan.md -f src/handlers/users.js -f infra/cdk-stack.ts
 
-kimi-advisor decompose "Migrate auth from session-based to JWT. Must maintain backwards compat during migration." \
-  -f src/auth.js -f src/middleware.js -f prisma/schema.prisma
+kimi-advisor decompose "Decompose the migration described in the attached plan." \
+  -f plan.md -f src/auth.js -f src/middleware.js
 ```
 
 ## Usage
@@ -45,28 +45,35 @@ kimi-advisor ask "We're building a real-time dashboard. Current stack: React + W
 
 ### `review` — Critique a plan
 
-Include the plan description AND attach relevant files via `-f`.
+Include the **full detailed plan** (not a summary) AND attach relevant files via `-f`. List every step with the files to modify and specific changes. A 5-line summary gets a generic review.
 
 ```bash
-kimi-advisor review "Goal: Add caching to our Express API (PostgreSQL, deployed on Lambda).
-Plan:
-1. Add Redis ElastiCache cluster
-2. Create cache middleware
-3. Cache GET /users and GET /products (TTL 5min)
-4. Add cache invalidation on POST/PUT/DELETE
-5. Add monitoring" \
-  -f src/handlers/users.js -f src/handlers/products.js -f infra/cdk-stack.ts
+# Attach the plan file + relevant source files
+kimi-advisor review "Review the attached implementation plan." \
+  -f plan.md -f src/handlers/users.js -f src/handlers/products.js -f infra/cdk-stack.ts
 
-# Pipe longer prompts via stdin
-echo "full context and plan here..." | kimi-advisor review - -f src/schema.prisma
+# Or inline the full plan directly
+kimi-advisor review "Add caching to our Express API (PostgreSQL, Lambda).
+
+[... full detailed plan: every step with files to create/modify,
+specific changes in each, dependencies, and testing strategy]" \
+  -f src/handlers/users.js -f src/handlers/products.js -f infra/cdk-stack.ts
 ```
 
 ### `decompose` — Break down into parallel/sequential tasks
 
-Describe the scope and constraints, attach the relevant code/config files.
+Include context, constraints, and scope — not just a one-liner. Attach the relevant code/config files.
 
 ```bash
-kimi-advisor decompose "Migrate REST API (15 endpoints) to GraphQL. Must maintain REST during migration for mobile clients on older versions." \
+# Attach scope description + relevant code/config
+kimi-advisor decompose "Decompose the migration described in the attached plan." \
+  -f plan.md -f src/routes.js -f prisma/schema.prisma -f cdk/api-stack.ts
+
+# Or inline the full scope directly
+kimi-advisor decompose "Migrate REST API to GraphQL.
+
+[... full context: stack, architecture, constraints (backwards compat,
+team size, timeline), scope of the migration]" \
   -f src/routes.js -f prisma/schema.prisma -f cdk/api-stack.ts
 ```
 
@@ -116,37 +123,56 @@ Use `kimi-advisor` to get a second opinion from Kimi K2.5 on complex tasks — a
 
 **Important:** Kimi has NO access to the codebase, files, or any context beyond what you pass in the prompt. You must include all relevant code, architecture details, constraints, and examples directly in the prompt as plain text. Never reference file paths or assume Kimi can look anything up.
 
+**Prompt content:** For `review` and `decompose`, include the **full detailed plan** in the prompt — not a summary. List every step with the files to create/modify and the specific changes planned in each. A 5-line summary gets a generic review; implementation-level detail gets actionable feedback. If the plan is very long, attach it as a `.md` file via `-f` instead of inlining it.
+
 ### Commands
 
 ```bash
 # Ask a question — include full context inline
 kimi-advisor ask "We have a Node.js API serving 10k req/s with this data model: [paste schema]. Sessions are stored in PostgreSQL. Should we move session storage to Redis or Memcached? Constraints: team has no Redis experience, budget is limited."
 
-# Review a plan — describe the plan AND attach relevant files
-kimi-advisor review "Add Google OAuth to our React Native app (Expo, Cognito).
-Plan:
-1. Add Google OAuth provider in Cognito
-2. Install expo-auth-session
-3. Create useGoogleAuth hook
-4. Add Google Sign-In button to LoginScreen
-5. Map Google profile to existing user model" \
+# Review a plan — attach plan file + relevant source files
+kimi-advisor review "Review the attached implementation plan." \
+  -f plan.md -f src/screens/LoginScreen.tsx -f src/hooks/useAuth.ts -f cdk/auth-stack.ts
+
+# Or inline the full plan directly
+kimi-advisor review "Add Google OAuth to our React Native app (Expo 51, Cognito).
+
+[... full detailed plan: every step with files to create/modify,
+specific changes in each, dependencies, and testing strategy]" \
   -f src/screens/LoginScreen.tsx -f src/hooks/useAuth.ts -f cdk/auth-stack.ts
 
-# Decompose a task — describe scope and attach code/config
-kimi-advisor decompose "Migrate REST API to GraphQL. Must maintain backwards compat during migration." \
+# Decompose a task — attach scope description + relevant code/config
+kimi-advisor decompose "Migrate REST API to GraphQL.
+
+[... full context: stack, architecture, constraints (backwards compat,
+team size, timeline), scope of the migration]" \
   -f src/routes.ts -f prisma/schema.prisma -f cdk/api-stack.ts
 
-# Pipe long input via stdin for larger prompts
-echo "full context here..." | kimi-advisor review -
+# Files-only invocation (no prompt text needed)
+kimi-advisor review -f plan.md -f src/auth.py
+
+# Pipe via stdin (auto-detected, no "-" needed)
+echo "full context here..." | kimi-advisor review
+
+# Heredoc for prompts with special characters ($, backticks, quotes)
+kimi-advisor review <<'EOF'
+Plan with $variables, `backticks`, and "quotes" preserved as-is.
+Single-quoted delimiter ('EOF') prevents all shell interpretation.
+EOF
 ```
+
+> **Note for Claude Code:** Heredocs with backticks may fail due to `bash -c`
+> wrapper escaping. Use file attachments or pipe instead:
+> `kimi-advisor review -f plan.md` or `cat plan.md | kimi-advisor review`
 
 ### When to use
 
 **ask** — Architecture decisions, technology choices, trade-off analysis, unfamiliar domains. Always include: the current stack, constraints, what you've considered so far.
 
-**review** — Validate your implementation plan before starting. Always include: the plan description AND relevant files via `-f` (code, config, schemas).
+**review** — Validate your implementation plan before starting. Always include: the full detailed plan AND relevant files via `-f` (code, config, schemas).
 
-**decompose** — Large migrations, multi-component features. Always include: scope/constraints description AND relevant files via `-f` (routes, schemas, infra).
+**decompose** — Large migrations, multi-component features. Always include: context, constraints, scope AND relevant files via `-f` (routes, schemas, infra).
 
 ### Prompt quality checklist
 
@@ -156,6 +182,7 @@ Before calling kimi-advisor, verify your prompt includes:
 - [ ] Constraints (team skills, budget, timeline, existing infra)
 - [ ] What you've already considered or tried
 - [ ] The specific question or decision point
+- [ ] For review/decompose: the full detailed plan (every step, files to modify, specific changes — not a summary)
 ````
 
 ### Optional: Enforce plan review with a blocking hook

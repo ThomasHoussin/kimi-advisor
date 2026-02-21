@@ -105,25 +105,34 @@ Use `kimi-advisor` to get a second opinion from Kimi K2.5 on complex tasks — a
 
 **Important:** Kimi has NO access to the codebase, files, or any context beyond what you pass in the prompt. You must include all relevant code, architecture details, constraints, and examples directly in the prompt as plain text. Never reference file paths or assume Kimi can look anything up.
 
+**Prompt content:** For `review` and `decompose`, include the **full detailed plan** in the prompt — not a summary. List every step with the files to create/modify and the specific changes planned in each. A 5-line summary gets a generic review; implementation-level detail gets actionable feedback. If the plan is very long, attach it as a `.md` file via `-f` instead of inlining it.
+
 ### Commands
 
 ```bash
 # Ask a question — include full context inline
 kimi-advisor ask "We have a Node.js API serving 10k req/s with this data model: [paste schema]. Sessions are stored in PostgreSQL. Should we move session storage to Redis or Memcached? Constraints: team has no Redis experience, budget is limited."
 
-# Review a plan — describe the plan AND attach relevant files
-kimi-advisor review "Add Google OAuth to our React Native app (Expo, Cognito).
-Plan:
-1. Add Google OAuth provider in Cognito
-2. Install expo-auth-session
-3. Create useGoogleAuth hook
-4. Add Google Sign-In button to LoginScreen
-5. Map Google profile to existing user model" \
+# Review a plan — attach plan file + relevant source files
+kimi-advisor review "Review the attached implementation plan." \
+  -f plan.md -f src/screens/LoginScreen.tsx -f src/hooks/useAuth.ts -f cdk/auth-stack.ts
+
+# Or inline the full plan directly (include every step, files to modify, specific changes)
+kimi-advisor review "Add Google OAuth to our React Native app (Expo 51, Cognito).
+
+[... full detailed plan: every step with files to create/modify,
+specific changes in each, dependencies, and testing strategy]" \
   -f src/screens/LoginScreen.tsx -f src/hooks/useAuth.ts -f cdk/auth-stack.ts
 
-# Decompose a task — describe scope and attach code/config
-kimi-advisor decompose "Migrate REST API to GraphQL. Must maintain backwards compat during migration." \
+# Decompose a task — attach scope description + relevant code/config
+kimi-advisor decompose "Migrate REST API to GraphQL.
+
+[... full context: stack, architecture, constraints (backwards compat,
+team size, timeline), scope of the migration]" \
   -f src/routes.ts -f prisma/schema.prisma -f cdk/api-stack.ts
+
+# Files-only invocation (no prompt text needed)
+kimi-advisor review -f plan.md -f src/auth.py
 
 # Pipe via stdin (auto-detected, no "-" needed)
 echo "full context here..." | kimi-advisor review
@@ -134,6 +143,10 @@ Plan with $variables, `backticks`, and "quotes" preserved as-is.
 Single-quoted delimiter ('EOF') prevents all shell interpretation.
 EOF
 ```
+
+> **Note for Claude Code:** Heredocs with backticks may fail due to `bash -c`
+> wrapper escaping. Use file attachments or pipe instead:
+> `kimi-advisor review -f plan.md` or `cat plan.md | kimi-advisor review`
 
 ### When to use
 
@@ -151,3 +164,4 @@ Before calling kimi-advisor, verify your prompt includes:
 - [ ] Constraints (team skills, budget, timeline, existing infra)
 - [ ] What you've already considered or tried
 - [ ] The specific question or decision point
+- [ ] For review/decompose: the full detailed plan (every step, files to modify, specific changes — not a summary)
