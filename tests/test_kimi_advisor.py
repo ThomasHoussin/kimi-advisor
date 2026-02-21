@@ -419,9 +419,7 @@ class TestCLI:
             mock_openai.return_value.chat.completions.create.return_value = (
                 mock_response
             )
-            result = runner.invoke(
-                kimi_advisor.cli, ["ask"], input="piped question\n"
-            )
+            result = runner.invoke(kimi_advisor.cli, ["ask"], input="piped question\n")
             assert result.exit_code == 0
             assert "Test answer" in result.output
 
@@ -532,6 +530,85 @@ class TestCLI:
             call_kwargs = mock_create.call_args[1]
             user_content = call_kwargs["messages"][1]["content"]
             assert isinstance(user_content, str)
+
+    def test_review_files_only(self, runner, mock_env, mock_response, tmp_path):
+        """review with -f but no text argument should succeed with default prompt."""
+        plan_file = tmp_path / "plan.md"
+        plan_file.write_text(
+            "# Migration Plan\n1. Step one\n2. Step two", encoding="utf-8"
+        )
+        with patch.object(kimi_advisor, "OpenAI") as mock_openai:
+            mock_create = mock_openai.return_value.chat.completions.create
+            mock_create.return_value = mock_response
+            result = runner.invoke(
+                kimi_advisor.cli,
+                ["review", "-f", str(plan_file)],
+            )
+            assert result.exit_code == 0
+            assert "Test answer" in result.output
+            call_kwargs = mock_create.call_args[1]
+            user_content = call_kwargs["messages"][1]["content"]
+            assert isinstance(user_content, list)
+            assert user_content[0]["text"] == "Review the attached files."
+
+    def test_ask_files_only(self, runner, mock_env, mock_response, tmp_path):
+        """ask with -f but no text argument should succeed with default prompt."""
+        code_file = tmp_path / "code.py"
+        code_file.write_text("def foo(): pass", encoding="utf-8")
+        with patch.object(kimi_advisor, "OpenAI") as mock_openai:
+            mock_create = mock_openai.return_value.chat.completions.create
+            mock_create.return_value = mock_response
+            result = runner.invoke(
+                kimi_advisor.cli,
+                ["ask", "-f", str(code_file)],
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_create.call_args[1]
+            user_content = call_kwargs["messages"][1]["content"]
+            assert user_content[0]["text"] == "Answer based on the attached files."
+
+    def test_decompose_files_only(self, runner, mock_env, mock_response, tmp_path):
+        """decompose with -f but no text argument should succeed with default prompt."""
+        task_file = tmp_path / "task.md"
+        task_file.write_text("# Big Task\nMigrate everything", encoding="utf-8")
+        with patch.object(kimi_advisor, "OpenAI") as mock_openai:
+            mock_create = mock_openai.return_value.chat.completions.create
+            mock_create.return_value = mock_response
+            result = runner.invoke(
+                kimi_advisor.cli,
+                ["decompose", "-f", str(task_file)],
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_create.call_args[1]
+            user_content = call_kwargs["messages"][1]["content"]
+            assert (
+                user_content[0]["text"]
+                == "Decompose the task described in the attached files."
+            )
+
+    def test_review_text_with_files(self, runner, mock_env, mock_response, tmp_path):
+        """review with both text and -f should use the provided text, not default."""
+        plan_file = tmp_path / "plan.md"
+        plan_file.write_text("# Plan content", encoding="utf-8")
+        with patch.object(kimi_advisor, "OpenAI") as mock_openai:
+            mock_create = mock_openai.return_value.chat.completions.create
+            mock_create.return_value = mock_response
+            result = runner.invoke(
+                kimi_advisor.cli,
+                ["review", "Check this plan carefully", "-f", str(plan_file)],
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_create.call_args[1]
+            user_content = call_kwargs["messages"][1]["content"]
+            assert isinstance(user_content, list)
+            assert user_content[0]["text"] == "Check this plan carefully"
+
+    def test_no_input_error_shows_file_usage(self, runner, mock_env):
+        """Error message should mention -f as a valid usage pattern."""
+        with patch.object(kimi_advisor, "OpenAI"):
+            result = runner.invoke(kimi_advisor.cli, ["ask"])
+            assert result.exit_code != 0
+            assert "-f" in result.output
 
 
 # --- _is_image_file ---

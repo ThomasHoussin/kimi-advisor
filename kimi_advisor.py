@@ -62,6 +62,12 @@ def _load_prompt(name: str) -> str:
 
 SYSTEM_PROMPTS = {mode: _load_prompt(mode) for mode in ("ask", "review", "decompose")}
 
+_DEFAULT_PROMPTS = {
+    "ask": "Answer based on the attached files.",
+    "review": "Review the attached files.",
+    "decompose": "Decompose the task described in the attached files.",
+}
+
 
 class KimiClient:
     """Client for Kimi K2.5 via Moonshot API."""
@@ -323,13 +329,17 @@ def _run_command(
     files: tuple[str, ...] = (),
 ):
     """Shared execution logic for all commands."""
-    if not prompt:
+    if not prompt and not files:
         raise click.ClickException(
             f"No input provided. Usage:\n"
             f'  kimi-advisor {mode} "your text"\n'
+            f"  kimi-advisor {mode} -f file.md\n"
             f"  kimi-advisor {mode} <<'EOF'\n"
             f"  echo '...' | kimi-advisor {mode}"
         )
+
+    if not prompt:
+        prompt = _DEFAULT_PROMPTS[mode]
 
     attachments = _process_files(files)
 
