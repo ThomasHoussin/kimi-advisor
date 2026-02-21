@@ -20,7 +20,8 @@ Question: Has "kimi-advisor" been actually executed during this session to revie
 
 Valid evidence of execution includes:
 - A Bash tool call containing "kimi-advisor review", "kimi-advisor ask", or "kimi-advisor decompose"
-- Tool result/output blocks showing kimi-advisor's response (e.g., "## Plan Review", recommendations, issues found)
+- A piped invocation like "cat ... | kimi-advisor review" or "echo ... | kimi-advisor review"
+- Tool result/output blocks showing kimi-advisor's response (e.g., "## Plan Review", "## Task Decomposition", "## Answer", recommendations, issues found)
 - The assistant discussing or incorporating specific feedback that came from kimi-advisor
 
 What does NOT count as evidence:
@@ -31,7 +32,7 @@ What does NOT count as evidence:
 Respond with ONLY a JSON object, no other text:
 {"executed": true} or {"executed": false}`;
 
-const TRANSCRIPT_WINDOW = 50_000;
+const TRANSCRIPT_WINDOW = 80_000;
 
 function readStdin() {
     return new Promise((resolve) => {
@@ -46,31 +47,46 @@ function readStdin() {
 
 /**
  * Extract the most relevant portion of the transcript for analysis.
- * Instead of blindly taking the last N bytes (which may cut out an earlier
- * kimi-advisor call), search for the last occurrence of "kimi-advisor" and
- * extract a window centered around it. Falls back to the tail if no match.
+ * Search for execution-specific markers (tool invocations and output headings)
+ * rather than just "kimi-advisor" which matches CLAUDE.md documentation references.
+ * Falls back to the tail if no match.
  */
 function extractRelevantTranscript(raw) {
     if (raw.length <= TRANSCRIPT_WINDOW) {
         return raw;
     }
 
-    const lastMatch = raw.lastIndexOf("kimi-advisor");
+    // Ordered by specificity: invocations first, then output headings
+    const markers = [
+        "| kimi-advisor",        // piped invocation
+        "kimi-advisor review",   // direct invocations
+        "kimi-advisor ask",
+        "kimi-advisor decompose",
+        "## Plan Review",        // output headings (lower priority)
+        "## Task Decomposition",
+        "## Answer",
+    ];
 
-    if (lastMatch === -1) {
-        // No mention at all — give Haiku the tail to confirm absence
+    // Find the latest match across all markers
+    let bestIdx = -1;
+    for (const marker of markers) {
+        const idx = raw.lastIndexOf(marker);
+        if (idx > bestIdx) {
+            bestIdx = idx;
+        }
+    }
+
+    if (bestIdx === -1) {
+        // No evidence at all — give Haiku the tail to confirm absence
         return raw.slice(-TRANSCRIPT_WINDOW);
     }
 
-    // Center a window around the last kimi-advisor occurrence
-    const halfWindow = Math.floor(TRANSCRIPT_WINDOW / 2);
-    let start = lastMatch - halfWindow;
-    let end = lastMatch + halfWindow;
+    // Center a window around the best match
+    const half = Math.floor(TRANSCRIPT_WINDOW / 2);
+    let start = Math.max(0, bestIdx - half);
+    let end = start + TRANSCRIPT_WINDOW;
 
-    if (start < 0) {
-        start = 0;
-        end = Math.min(TRANSCRIPT_WINDOW, raw.length);
-    } else if (end > raw.length) {
+    if (end > raw.length) {
         end = raw.length;
         start = Math.max(0, end - TRANSCRIPT_WINDOW);
     }
